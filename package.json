@@ -1,9 +1,17 @@
 {
 	"name": "@vigolium/piolium",
-	"version": "0.0.7",
+	"version": "0.0.8",
 	"description": "Multi-phase security audits with specialist sub-agents, isolated context windows, capped concurrency, and resumable state — packaged as a Pi extension.",
 	"keywords": ["pi-package", "pi-extension", "security", "audit", "subagents", "piolium"],
 	"license": "MIT",
+	"homepage": "https://github.com/vigolium/piolium",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/vigolium/piolium.git"
+	},
+	"bugs": {
+		"url": "https://github.com/vigolium/piolium/issues"
+	},
 	"type": "module",
 	"bin": {
 		"piolium": "./bin/piolium.mjs"
