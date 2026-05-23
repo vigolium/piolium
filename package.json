@@ -1,0 +1,65 @@
+{
+	"name": "@vigolium/piolium",
+	"version": "0.0.7",
+	"description": "Multi-phase security audits with specialist sub-agents, isolated context windows, capped concurrency, and resumable state — packaged as a Pi extension.",
+	"keywords": ["pi-package", "pi-extension", "security", "audit", "subagents", "piolium"],
+	"license": "MIT",
+	"type": "module",
+	"bin": {
+		"piolium": "./bin/piolium.mjs"
+	},
+	"pi": {
+		"extensions": ["./extensions/piolium/index.ts"],
+		"skills": ["./skills"],
+		"prompts": ["./prompts"],
+		"themes": ["./themes"]
+	},
+	"scripts": {
+		"install": "bash scripts/local-install.sh",
+		"release": "bash scripts/release.sh",
+		"npm-publish": "bun run scripts/npm-publish.ts",
+		"npm-publish:dry": "PIOLIUM_NPM_DRY_RUN=1 bun run scripts/npm-publish.ts",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check .",
+		"format": "biome format --write .",
+		"test": "vitest run",
+		"test:coverage": "vitest run --coverage"
+	},
+	"peerDependencies": {
+		"@anthropic-ai/vertex-sdk": "^0.14.0",
+		"@earendil-works/pi-ai": "^0.74.0",
+		"@earendil-works/pi-agent-core": "^0.74.0",
+		"@earendil-works/pi-coding-agent": "^0.74.0",
+		"@earendil-works/pi-tui": "^0.74.0",
+		"@earendil-works/pi-web-ui": "^0.74.0",
+		"typebox": "^1.1.24"
+	},
+	"peerDependenciesMeta": {
+		"@anthropic-ai/vertex-sdk": { "optional": true },
+		"@earendil-works/pi-ai": { "optional": true },
+		"@earendil-works/pi-agent-core": { "optional": true },
+		"@earendil-works/pi-coding-agent": { "optional": true },
+		"@earendil-works/pi-tui": { "optional": true },
+		"@earendil-works/pi-web-ui": { "optional": true },
+		"typebox": { "optional": true }
+	},
+	"devDependencies": {
+		"@anthropic-ai/sdk": "^0.73.0",
+		"@anthropic-ai/vertex-sdk": "^0.14.0",
+		"@biomejs/biome": "^1.9.4",
+		"@earendil-works/pi-ai": "^0.74.0",
+		"@earendil-works/pi-agent-core": "^0.74.0",
+		"@earendil-works/pi-coding-agent": "^0.74.0",
+		"@earendil-works/pi-tui": "^0.74.0",
+		"@earendil-works/pi-web-ui": "^0.74.0",
+		"@types/bun": "^1.1.14",
+		"@vitest/coverage-v8": "^4.1.5",
+		"typebox": "^1.1.24",
+		"typescript": "^5.7.0",
+		"vitest": "^4.1.5",
+		"yaml": "^2.8.2"
+	},
+	"engines": {
+		"bun": ">=1.1.0"
+	}
+}

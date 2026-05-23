@@ -1,0 +1,3 @@
+# Reserved for prompt templates (package.json#pi.prompts -> ./prompts).
+# Tracked so a fresh clone / packaged install resolves the path; the importer
+# also (re)creates this directory.
