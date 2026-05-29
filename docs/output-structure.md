@@ -211,7 +211,8 @@ cleanup summaries.
 
 | File | Produced by | Description |
 | --- | --- | --- |
-| `findings-inventory.json` | confirm V1 | Extracted finding metadata and exploitability classification. |
+| `repair-summary.json` | confirm V1 (pre-inventory) | Outcome of the report-repair pass: which findings had `report.md` (re)authored from `draft.md`, which were already complete, which failed, and which had no repair source. |
+| `findings-inventory.json` | confirm V1 | Extracted finding metadata, exploitability classification, and `poc_kind` (`runnable` / `theoretical` / `none`) for V4/V5 routing. |
 | `env-strategies.json` | confirm V2 | Ranked local startup and test strategies. |
 | `auth-spec.json` | confirm V2 | Optional auth identity scaffolding. |
 | `env-connection.json` | confirm V3 or remote target setup | Base URL, credentials/tokens when available, method used, cleanup command, and session metadata. |

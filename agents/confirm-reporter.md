@@ -23,15 +23,18 @@ You receive:
 
 ### 1. Inventory All Findings
 
-Scan `piolium/findings/*/report.md` for all findings. These markdown reports are the source of truth.
+Read `piolium/confirm-workspace/findings-inventory.json` (written by V1) as the source of truth for confirmation scope — it lists every finding, its `dir`, `source_kind`, and `poc_kind`, including theoretical / repaired ones. Then read each finding's `report.md` for the per-finding details.
 For each finding, extract:
 - Finding ID and slug (from directory name)
+- `poc_kind` (`runnable` | `theoretical` | `none`) and `source_kind` (`report` | `draft` | `missing`) from the inventory
 - Title
 - Original severity (`Severity-Final` or `Severity-Original`)
 - Original `PoC-Status` (from the audit phase)
 - Confirmation status (`Confirm-Status` field — may be absent if not yet confirmed)
 - Confirmation method (`Confirm-Method`: `poc-live`, `generated-test`, or absent)
 - Evidence path (`Confirm-Evidence` or `Confirm-Test`)
+
+If an inventory entry has `source_kind: "missing"` (no readable `report.md` or `draft.md` — V1 repair could not author one), keep it in the `error` category with a note like "missing report.md and draft.md" and do not abort report generation.
 
 ### 2. Categorize Results
 
@@ -114,6 +117,18 @@ Write `piolium/confirmation-report.md`:
 | network-exploitable | N | N | N | N | N | — |
 | local-exploitable | N | — | N | N | N | — |
 | non-exploitable | N | — | — | — | — | N |
+
+## Breakdown by PoC Origin
+
+(read each finding's `poc_kind` from `piolium/confirm-workspace/findings-inventory.json`. `runnable` = a real `poc.*`/`exploit.*` script existed at audit time; `theoretical` = only a `poc.theoretical.md` note existed; `none` = no PoC artifact at all. The latter two enter confirmation without a runnable PoC and reach a verdict only via the V5 generated-test fallback.)
+
+| PoC Origin | Total | confirmed-live | confirmed-test | unconfirmed | blocked | analytical-only |
+|------------|-------|----------------|----------------|-------------|---------|-----------------|
+| runnable (PoC-backed) | N | N | N | N | N | N |
+| theoretical | N | — | N | N | N | N |
+| none | N | — | N | N | N | N |
+
+A `theoretical` or `none` finding that becomes `confirmed-test` is a theoretical finding that the generated test promoted to verified — call it out so a reviewer can regenerate its disclosure report with the new evidence.
 
 ## Confirmed Findings (Live)
 
@@ -226,6 +241,7 @@ If `piolium/audit-state.json` exists, update the latest audit entry. Two writes:
       "error": <count>
     },
     "by_class": {"network-exploitable": <count>, "local-exploitable": <count>, "non-exploitable": <count>},
+    "by_poc_kind": {"runnable": <count>, "theoretical": <count>, "none": <count>},
     "confirmation_rate": "<X/Y (Z%)>"
   }
 }

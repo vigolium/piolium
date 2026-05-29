@@ -60,7 +60,7 @@ piolium/findings/<ID>-<slug>/exploit.sh
 piolium/findings/<ID>-<slug>/exploit.py
 ```
 
-If no PoC script exists, report `Confirm-Status: no-poc` and skip to completion.
+If no runnable PoC script exists, report `Confirm-Status: no-poc` and skip to completion. A `poc.theoretical.md` note is **not** a runnable script — it documents a chain that could not be exploited at audit time (the inventory marks these `poc_kind: theoretical`). Do NOT try to execute it; report `Confirm-Status: no-poc` so the V5 test mapper picks the finding up as a fallback candidate.
 
 ### 3. Adapt the PoC (substitution + protocol-aware adapter)
 

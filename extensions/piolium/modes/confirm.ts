@@ -31,7 +31,7 @@ import {
 } from "node:fs";
 import { basename, extname, join } from "node:path";
 import type { AgentRuntimeModel } from "../agent-runner.ts";
-import { loadAgents } from "../agents.ts";
+import { type AgentDefinition, loadAgents } from "../agents.ts";
 import {
 	type AuditRunState,
 	applyPhaseStatus,
@@ -42,6 +42,7 @@ import {
 } from "../audit-state.ts";
 import { runReconAsync } from "../recon.ts";
 import { errorMessage } from "../retry.ts";
+import { Scheduler } from "../scheduler.ts";
 import { type PhaseUiHooks, runAgentPhase } from "./phase-runner.ts";
 
 export interface RunConfirmOptions {
@@ -136,6 +137,79 @@ export function findingDirsWithReports(cwd: string): string[] {
 		.sort();
 }
 
+/**
+ * A `report.md` smaller than this is treated as missing/truncated and eligible
+ * for V1 repair. Matches deep mode's `findingHasReport` threshold so a report
+ * confirm trusts is one deep would also have accepted as complete.
+ */
+export const REPORT_MIN_BYTES = 500;
+
+const RUNNABLE_POC_RE = /^(?:poc|exploit)\.(?:py|sh|js|rb|go)$/i;
+
+/** Classification of a finding's PoC artifacts, used for V4/V5 routing. */
+export type PocKind = "runnable" | "theoretical" | "none";
+
+/**
+ * Inspect a finding directory and classify its PoC:
+ * - `runnable`     — has an executable `poc.*`/`exploit.*` script (V4 can run it)
+ * - `theoretical`  — only a `poc.theoretical.md` note exists (route straight to V5)
+ * - `none`         — no PoC artifact at all (route to V5 fallback)
+ */
+export function pocKindForDir(dir: string): PocKind {
+	let entries: string[];
+	try {
+		entries = readdirSync(dir);
+	} catch {
+		return "none";
+	}
+	if (entries.some((f) => RUNNABLE_POC_RE.test(f))) return "runnable";
+	if (entries.includes("poc.theoretical.md")) return "theoretical";
+	return "none";
+}
+
+export interface FindingCandidate {
+	/** Directory basename, e.g. `C1-sql-injection`. */
+	name: string;
+	/** Absolute path to the finding directory. */
+	dir: string;
+	/** `report.md` present and larger than {@link REPORT_MIN_BYTES}. */
+	hasReport: boolean;
+	/** `draft.md` present (repair source when the report is missing/truncated). */
+	hasDraft: boolean;
+	/** PoC classification for V4/V5 routing. */
+	pocKind: PocKind;
+}
+
+/**
+ * Every directory under `piolium/findings/` that confirm mode can act on — one
+ * with either a usable `report.md` OR a `draft.md` it can repair into a report.
+ * A dir with neither is skipped (nothing to confirm or repair).
+ */
+export function findingCandidates(cwd: string): FindingCandidate[] {
+	const root = join(cwd, "piolium", "findings");
+	if (!existsSync(root)) return [];
+	const out: FindingCandidate[] = [];
+	for (const entry of readdirSync(root).sort()) {
+		const dir = join(root, entry);
+		try {
+			if (!statSync(dir).isDirectory()) continue;
+		} catch {
+			continue;
+		}
+		let hasReport = false;
+		try {
+			const report = join(dir, "report.md");
+			hasReport = existsSync(report) && statSync(report).size > REPORT_MIN_BYTES;
+		} catch {
+			hasReport = false;
+		}
+		const hasDraft = existsSync(join(dir, "draft.md"));
+		if (!hasReport && !hasDraft) continue;
+		out.push({ name: entry, dir, hasReport, hasDraft, pocKind: pocKindForDir(dir) });
+	}
+	return out;
+}
+
 function pickResume(cwd: string, force: boolean): AuditRunState | undefined {
 	if (force) return undefined;
 	const state = readAuditState(cwd).state;
@@ -164,10 +238,12 @@ export function buildConfirmTask(phase: string, target: string | undefined): str
 		case "V1":
 			return [
 				"You are running V1 (Findings Inventory) of /piolium-confirm.",
-				"Read every `report.md` under `piolium/findings/` and treat it as the source of truth.",
-				"Extract: id, slug, severity, vulnerability class, title, PoC script path, Protocol, Auth-Required, and existing Confirm-* fields.",
-				"Classify each finding as `network-exploitable`, `local-exploitable`, or `non-exploitable`. When unsure, default to network-exploitable so V4 gets a chance.",
-				`Write \`${WORK}/findings-inventory.json\` with totals by severity/class and one object per finding.`,
+				"Scan every directory under `piolium/findings/`. The orchestrator has already run a report-repair pass (its outcome is in `piolium/confirm-workspace/repair-summary.json` when present), so prefer each finding's `report.md` as the source of truth; fall back to `draft.md` only when the report is still missing or truncated (≤500 bytes).",
+				"For each finding record: id, slug, dir, severity, vulnerability class, title, PoC script path, Protocol, Auth-Required, and existing Confirm-* fields. Also record `source_kind` (`report` | `draft` | `missing`), `has_report` (bool), `has_draft` (bool), and `poc_kind` (`runnable` if an executable `poc.*`/`exploit.*` script exists, `theoretical` if only a `poc.theoretical.md` note exists, else `none`).",
+				'If a directory has neither a usable `report.md` nor a `draft.md`, record it with `source_kind: "missing"` and `confirm_status: "error"` and do not abort the run for one broken finding.',
+				"Classify each finding as `network-exploitable`, `local-exploitable`, or `non-exploitable`. When unsure, default to network-exploitable so V4/V5 get a chance.",
+				"Routing implications: `non-exploitable` skips V4 (analytical-only); `local-exploitable` skips V4 and goes to V5; `network-exploitable` with `poc_kind: runnable` runs in V4; `network-exploitable` with `poc_kind: theoretical | none` (common for theoretical findings) skips V4 and is a first-class V5 test-fallback candidate.",
+				`Write \`${WORK}/findings-inventory.json\` with one object per finding plus totals: \`by_severity\`, \`by_class\`, \`by_poc_kind\` ({runnable, theoretical, none}), \`with_poc\`/\`without_poc\`, and a \`repair\` summary mirroring \`repair-summary.json\` (or zeros if absent).`,
 				targetLine,
 				CONFIRMATION_STANDARD,
 			].join("\n\n");
@@ -209,8 +285,9 @@ export function buildConfirmTask(phase: string, target: string | undefined): str
 			return [
 				"You are running V4 (PoC Execution) of /piolium-confirm.",
 				"Read findings-inventory.json and env-connection.json. Skip non-exploitable findings as `Confirm-Status: analytical-only`; route local-only findings to V5.",
+				"Route by `poc_kind`: only findings with `poc_kind: runnable` execute here. Findings with `poc_kind: theoretical` (only a `poc.theoretical.md` note) or `poc_kind: none` have no script to run — mark them `Confirm-Status: no-poc` and leave them for the V5 test fallback. Do NOT attempt to execute a `poc.theoretical.md`.",
 				"Before per-finding execution, run one reachability check against base_url with a 5s timeout; if unreachable, mark queued network findings `blocked` and record the reason.",
-				"For every network-exploitable finding with a PoC, execute the real PoC against the target. Use a 30s timeout per variant, max 2 variants.",
+				"For every network-exploitable finding with a runnable PoC, execute the real PoC against the target. Use a 30s timeout per variant, max 2 variants.",
 				"Capture exact command, relevant env, HTTP request/response or stdout/stderr, and observable before/after state to `<finding-dir>/evidence/confirmed-<timestamp>.log`.",
 				"Parse structured PoC output if present: final JSON line `{status,evidence,notes}`.",
 				"Update each `report.md` with `Confirm-Status: confirmed-live | failed | blocked | analytical-only | false-positive` and `Confirm-Evidence:` pointing at the evidence file.",
@@ -220,7 +297,7 @@ export function buildConfirmTask(phase: string, target: string | undefined): str
 		case "V5":
 			return [
 				"You are running V5 (Test Mapper) of /piolium-confirm.",
-				"For findings whose live PoC did not confirm, had no PoC, or are local-exploitable, generate the smallest reproducer test in the existing test framework.",
+				"For findings whose live PoC did not confirm, had no PoC, or are local-exploitable, generate the smallest reproducer test in the existing test framework. Theoretical findings (inventory `poc_kind: theoretical | none`) never had a runnable PoC and are first-class V5 candidates — generate a reproducer test for them rather than reporting them as unverifiable.",
 				"Actually run the test with a 60s cap (pytest timeout, jest --testTimeout, go test -timeout, etc.).",
 				"Keep reproducer files/evidence under each finding dir and write command/output logs under `evidence/`.",
 				"Update `report.md`: `Confirm-Status: confirmed-test | failed | blocked | false-positive` and `Confirm-Evidence:`.",
@@ -562,6 +639,141 @@ export function cleanupConfirmArtifacts(cwd: string): ConfirmCleanupResult {
 	return result;
 }
 
+export interface RepairSummary {
+	/** Dirs whose report.md was (re)authored from draft.md this run. */
+	repaired: string[];
+	/** Dirs that needed repair but still have no usable report.md afterward. */
+	failed: string[];
+	/** Dirs whose report.md was already complete — left untouched. */
+	skipped_complete: string[];
+	/** Dirs with neither a usable report.md nor a draft.md to repair from. */
+	missing_source: string[];
+}
+
+export const REPAIR_SUMMARY = `${WORK}/repair-summary.json`;
+
+function writeRepairSummary(cwd: string, summary: RepairSummary): void {
+	ensureConfirmWorkdir(cwd);
+	writeFileSync(
+		join(cwd, REPAIR_SUMMARY),
+		`${JSON.stringify({ repaired_at: new Date().toISOString(), ...summary }, null, "\t")}\n`,
+	);
+}
+
+function reportIsUsable(cwd: string, name: string): boolean {
+	try {
+		const report = join(cwd, "piolium", "findings", name, "report.md");
+		return existsSync(report) && statSync(report).size > REPORT_MIN_BYTES;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * V1 report-repair pass. Confirm mode needs a `report.md` per finding, but a
+ * standalone or partially-completed audit may leave a finding with only a
+ * `draft.md` (e.g. P14 finding-reporter ran out of runway). For each such
+ * candidate, spawn `finding-reporter` to author `report.md` from `draft.md`
+ * before V1 inventories the findings. Unrepairable candidates are recorded and
+ * left for V6 to surface as `error` — they never abort the run.
+ *
+ * Idempotent: candidates that already have a usable report are skipped, so a
+ * resumed confirm run spawns nothing when repair already happened.
+ */
+async function repairFindingReports(opts: {
+	cwd: string;
+	audit: AuditRunState;
+	agent: AgentDefinition | undefined;
+	ui: PhaseUiHooks | undefined;
+	agentRuntime?: AgentRuntimeModel;
+	signal?: AbortSignal;
+}): Promise<RepairSummary> {
+	const { cwd, audit, agent, ui, agentRuntime, signal } = opts;
+	const candidates = findingCandidates(cwd);
+	const summary: RepairSummary = {
+		repaired: [],
+		failed: [],
+		skipped_complete: [],
+		missing_source: [],
+	};
+	const repairable: FindingCandidate[] = [];
+	for (const candidate of candidates) {
+		if (candidate.hasReport) summary.skipped_complete.push(candidate.name);
+		else if (candidate.hasDraft) repairable.push(candidate);
+		else summary.missing_source.push(candidate.name);
+	}
+
+	if (repairable.length === 0) {
+		writeRepairSummary(cwd, summary);
+		return summary;
+	}
+	if (!agent) {
+		// No finding-reporter available — record the gap and let V1/V6 cope.
+		for (const candidate of repairable) summary.failed.push(candidate.name);
+		writeRepairSummary(cwd, summary);
+		ui?.notify?.(
+			`finding-reporter missing; ${repairable.length} draft-only finding(s) cannot be repaired and will report as errored.`,
+			"warning",
+		);
+		return summary;
+	}
+
+	ui?.notify?.(
+		`Repairing ${repairable.length} finding report(s) from draft.md before inventory.`,
+		"info",
+	);
+	const scheduler = new Scheduler({ maxConcurrent: 3, ...(signal ? { signal } : {}) });
+	await Promise.allSettled(
+		repairable.map((candidate) =>
+			scheduler.enqueue({
+				id: `V1-repair:${candidate.name}`,
+				run: async (sig) => {
+					try {
+						await runAgentPhase({
+							cwd,
+							audit,
+							phaseName: `V1-repair:${candidate.name}`,
+							statusKey: "piolium-confirm",
+							statusLabel: `● V1 repair ${candidate.name}`,
+							agent,
+							missingAgentMessage: "finding-reporter missing",
+							task: [
+								"You are repairing a finding report for /piolium-confirm V1.",
+								`Finding directory: piolium/findings/${candidate.name}/`,
+								"Author the disclosure-ready `report.md` for this directory from its `draft.md` (plus any `poc.*`/`evidence/` present). Write only `report.md`; do not modify the inputs.",
+								"If `report.md` already exists and is complete, exit without rewriting.",
+							].join("\n\n"),
+							gate: () => reportIsUsable(cwd, candidate.name),
+							mode: "confirm",
+							ui,
+							...(agentRuntime ? { agentRuntime } : {}),
+							maxRetries: 1,
+							...(sig ? { signal: sig } : {}),
+						});
+					} catch {
+						// Outcome is read back from disk below; one failure must not
+						// reject the whole batch.
+					}
+				},
+			}),
+		),
+	);
+	scheduler.dispose();
+
+	for (const candidate of repairable) {
+		if (reportIsUsable(cwd, candidate.name)) summary.repaired.push(candidate.name);
+		else summary.failed.push(candidate.name);
+	}
+	writeRepairSummary(cwd, summary);
+	if (summary.failed.length > 0) {
+		ui?.notify?.(
+			`${summary.failed.length} finding(s) could not be repaired and will report as errored.`,
+			"warning",
+		);
+	}
+	return summary;
+}
+
 async function runCleanupPhase(
 	cwd: string,
 	audit: AuditRunState,
@@ -595,8 +807,10 @@ async function runCleanupPhase(
 
 export async function runConfirmAudit(opts: RunConfirmOptions): Promise<RunConfirmResult> {
 	const { cwd, signal, ui } = opts;
-	if (findingDirsWithReports(cwd).length === 0) {
-		throw new Error("No findings to confirm. Expected `piolium/findings/*/report.md`.");
+	if (findingCandidates(cwd).length === 0) {
+		throw new Error(
+			"No findings to confirm. Expected `piolium/findings/<id>-<slug>/` with `report.md` or `draft.md`.",
+		);
 	}
 	ensureConfirmWorkdir(cwd);
 
@@ -624,6 +838,20 @@ export async function runConfirmAudit(opts: RunConfirmOptions): Promise<RunConfi
 		V5: agents.get("test-mapper"),
 		V6: agents.get("confirm-reporter"),
 	};
+
+	// V1 report repair — author report.md from draft.md for any candidate that
+	// lacks a usable report, so theoretical / partially-finalized findings are
+	// confirmable. Skipped on resume once V1 has completed.
+	if (audit.phases.V1?.status !== "complete") {
+		await repairFindingReports({
+			cwd,
+			audit,
+			agent: agents.get("finding-reporter"),
+			ui,
+			...(opts.agentRuntime ? { agentRuntime: opts.agentRuntime } : {}),
+			...(signal ? { signal } : {}),
+		});
+	}
 
 	let failed = false;
 

@@ -102,13 +102,20 @@ When a remote URL is supplied, local environment discovery/provisioning is
 skipped and the URL is treated as the already-running target. Remote mode also
 skips local test fallback.
 
+Before V1, the orchestrator runs a deterministic **report-repair** pass: any
+finding directory that has a `draft.md` but no usable `report.md` (missing or
+≤500 bytes) gets a `finding-reporter` spawned to author its `report.md`, so
+theoretical and partially-finalized findings are confirmable. Unrepairable
+candidates are recorded in `repair-summary.json` and surfaced by V6 as `error`
+— they never abort the run.
+
 | Phase | Name | What it does | Main outputs |
 | --- | --- | --- | --- |
-| `V1` | Findings Inventory | Reads `piolium/findings/*/report.md`, classifies findings, extracts PoC paths and metadata, and sorts by severity. | `piolium/confirm-workspace/findings-inventory.json` |
+| `V1` | Findings Inventory + Report Repair | Repairs missing/truncated `report.md` from `draft.md` via `finding-reporter`, then reads each `piolium/findings/*/report.md` (draft fallback when repair failed), classifies findings, extracts PoC paths and metadata, records `source_kind`/`poc_kind`, and sorts by severity. | `piolium/confirm-workspace/repair-summary.json`; `piolium/confirm-workspace/findings-inventory.json` |
 | `V2` | Environment Discovery | Discovers startup strategies, ports, env vars, datastores, migrations, test framework, and optional auth scaffolding. | `piolium/confirm-workspace/env-strategies.json`; `piolium/confirm-workspace/auth-spec.json` when auth is detected |
 | `V3` | Environment Provisioning | Starts or prepares the target locally, seeds test identities when possible, and records connection details. | `piolium/confirm-workspace/env-connection.json` or `piolium/confirm-workspace/healthcheck-failure.log` |
-| `V4` | Proof-of-Concept Execution | Runs existing PoCs against the target, captures observable evidence, and updates finding reports with confirmation fields. | `piolium/confirm-workspace/poc-results.json`; `piolium/findings/<id>-<slug>/evidence/confirmed-<timestamp>.log`; updated `report.md` |
-| `V5` | Test-Based Fallback | Generates and runs focused reproducer tests for unconfirmed, blocked, no-PoC, or local-only findings. | `piolium/confirm-workspace/test-mapping.json`; test/evidence files under each finding; updated `report.md` |
+| `V4` | Proof-of-Concept Execution | Runs existing runnable PoCs against the target, captures observable evidence, and updates finding reports with confirmation fields. Findings with `poc_kind: theoretical` (only a `poc.theoretical.md` note) or `none` are marked `no-poc` here and left for V5. | `piolium/confirm-workspace/poc-results.json`; `piolium/findings/<id>-<slug>/evidence/confirmed-<timestamp>.log`; updated `report.md` |
+| `V5` | Test-Based Fallback | Generates and runs focused reproducer tests for unconfirmed, blocked, no-PoC, local-only, and theoretical (no-runnable-PoC) findings. | `piolium/confirm-workspace/test-mapping.json`; test/evidence files under each finding; updated `report.md` |
 | `V6` | Confirmation Report | Compiles confirmation verdicts and renames false-positive finding folders with an `FP-` prefix before reporting. | `piolium/confirmation-report.md`; `piolium/confirm-workspace/false-positive-renames.json` |
 | `V7` | Cleanup & Redaction | Checks final finding layout, creates missing evidence directories, and redacts common secrets from text artifacts. | `piolium/confirm-workspace/cleanup-summary.json`; redacted evidence/report files when needed |
 

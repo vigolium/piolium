@@ -19,6 +19,8 @@ You receive:
 - **Mode**: `full` (app couldn't start — all findings), `fallback` (PoC failed — specific findings only), or `local` (local-exploitable findings that skipped V4)
 - **Session UUID**: `$PIOLIUM_SESSION_UUID` (informational; goes into test name annotation)
 
+**Theoretical findings are first-class here.** A finding the inventory marks `poc_kind: theoretical` or `poc_kind: none` (it had only a `poc.theoretical.md` note, or no PoC at all, and so was skipped in V4 as `no-poc`) is exactly what this phase exists to verify — generate and run a reproducer test for it rather than treating it as unverifiable. If `report.md` is thin, read the finding's `draft.md` and `poc.theoretical.md` for the attack chain.
+
 ## Test Mapping Protocol
 
 ### 1. Read the Finding
