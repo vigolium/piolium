@@ -268,24 +268,22 @@ function defaultConsoleStreamEnv(args) {
 }
 
 function hasPioliumPrompt(args) {
-	for (let i = 0; i < args.length; i++) {
-		const arg = args[i];
-		if (
-			(arg === "-p" || arg === "--print" || arg === "--prompt") &&
-			args[i + 1]?.includes("/piolium-")
-		) {
-			return true;
+	let hasPrintFlag = false;
+	for (const arg of args) {
+		if (arg === "-p" || arg === "--print" || arg === "--prompt") {
+			hasPrintFlag = true;
+			continue;
 		}
-		if (
-			(arg.startsWith("-p=") ||
-				arg.startsWith("--print=") ||
-				arg.startsWith("--prompt=")) &&
-			arg.includes("/piolium-")
-		) {
-			return true;
+		if (arg.startsWith("-p=") || arg.startsWith("--print=") || arg.startsWith("--prompt=")) {
+			const value = arg.slice(arg.indexOf("=") + 1);
+			if (isPioliumCommand(value)) return true;
 		}
 	}
-	return false;
+	return hasPrintFlag && args.some(isPioliumCommand);
+}
+
+function isPioliumCommand(value) {
+	return /^\/piolium-[a-z0-9][a-z0-9-]*(?:\s|$)/i.test(value.trimStart());
 }
 
 function hasSessionDirArg(args) {

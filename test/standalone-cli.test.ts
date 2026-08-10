@@ -221,18 +221,33 @@ describe("standalone piolium launcher", () => {
 		},
 	);
 
-	it("preserves piped stdin for non-Piolium prompts", () => {
+	it("closes inherited stdin when print options precede the Piolium command", async () => {
 		const fakePi = writeStdinAwareFakePi();
 
-		const result = runPiolium(
-			["-p", "plain prompt"],
+		const result = await runPioliumWithOpenStdin(
+			["--print", "--model", "test", "/piolium-smoke"],
 			{ PIOLIUM_PI_BIN: fakePi },
-			"piped context",
 		);
 
 		expect(result.status).toBe(0);
-		expect(JSON.parse(result.stdout).stdin).toBe("piped context");
+		expect(JSON.parse(result.stdout).stdin).toBe("");
 	});
+
+	it.each(["plain prompt", "Explain /piolium-smoke"])(
+		"preserves piped stdin for non-Piolium prompt: %s",
+		(prompt) => {
+			const fakePi = writeStdinAwareFakePi();
+
+			const result = runPiolium(
+				["-p", prompt],
+				{ PIOLIUM_PI_BIN: fakePi },
+				"piped context",
+			);
+
+			expect(result.status).toBe(0);
+			expect(JSON.parse(result.stdout).stdin).toBe("piped context");
+		},
+	);
 
 	it("respects an explicit console progress override", () => {
 		const fakePi = writeFakePi();
