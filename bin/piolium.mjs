@@ -246,7 +246,7 @@ function runPi(args, paths) {
 	const finalArgs = hasSessionDirArg(args) ? args : ["--session-dir", paths.sessionDir, ...args];
 	const consoleStream = defaultConsoleStreamEnv(finalArgs);
 	const result = spawnSync(piCommand, finalArgs, {
-		stdio: "inherit",
+		stdio: hasPioliumPrompt(finalArgs) ? ["ignore", "inherit", "inherit"] : "inherit",
 		env: {
 			...process.env,
 			PI_CODING_AGENT_DIR: paths.agentDir,

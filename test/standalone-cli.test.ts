@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -52,6 +52,55 @@ function writeFakePi() {
 	);
 	chmodSync(path, 0o755);
 	return path;
+}
+
+function writeStdinAwareFakePi() {
+	const path = join(tmpRoot, "stdin-aware-pi.mjs");
+	writeFileSync(
+		path,
+		[
+			"#!/usr/bin/env node",
+			"process.stdin.resume();",
+			"process.stdin.on('end', () => console.log('stdin closed'));",
+			"",
+		].join("\n"),
+	);
+	chmodSync(path, 0o755);
+	return path;
+}
+
+function runPioliumWithOpenStdin(
+	args: string[],
+	extraEnv: Record<string, string> = {},
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
+	const env = {
+		...process.env,
+		PIOLIUM_HOME: join(tmpRoot, "home"),
+		PIOLIUM_PACKAGE_DIR: resolve("."),
+		PIOLIUM_SOURCE_PI_AGENT_DIR: join(tmpRoot, "source-agent"),
+		...extraEnv,
+	};
+	const child = spawn(process.execPath, [resolve("bin/piolium.mjs"), ...args], {
+		env,
+		stdio: ["pipe", "pipe", "pipe"],
+	});
+	// Keep stdin open to reproduce invocation from Pi's bash tool.
+	return new Promise((resolvePromise, reject) => {
+		let stdout = "";
+		let stderr = "";
+		child.stdout.on("data", (chunk) => (stdout += String(chunk)));
+		child.stderr.on("data", (chunk) => (stderr += String(chunk)));
+		const timeout = setTimeout(() => {
+			child.stdin.destroy();
+			child.kill("SIGKILL");
+			reject(new Error("standalone launcher left the child waiting on inherited stdin"));
+		}, 5_000);
+		child.on("error", reject);
+		child.on("close", (status) => {
+			clearTimeout(timeout);
+			resolvePromise({ status, stdout, stderr });
+		});
+	});
 }
 
 describe("standalone piolium launcher", () => {
@@ -148,6 +197,18 @@ describe("standalone piolium launcher", () => {
 		expect(payload.argv).toContain("-p");
 		expect(payload.argv).toContain("/piolium-balanced --fresh");
 		expect(payload.agentDir).toBe(join(tmpRoot, "home", "agent"));
+	});
+
+	it("closes inherited stdin for one-shot piolium prompts", async () => {
+		const fakePi = writeStdinAwareFakePi();
+
+		const result = await runPioliumWithOpenStdin(["-p", "/piolium-smoke"], {
+			PIOLIUM_PI_BIN: fakePi,
+		});
+
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain("stdin closed");
+		expect(result.stderr).toBe("");
 	});
 
 	it("respects an explicit console progress override", () => {
