@@ -199,17 +199,20 @@ describe("standalone piolium launcher", () => {
 		expect(payload.agentDir).toBe(join(tmpRoot, "home", "agent"));
 	});
 
-	it("closes inherited stdin for one-shot piolium prompts", async () => {
-		const fakePi = writeStdinAwareFakePi();
+	it.each(["-p", "--print"])(
+		"closes inherited stdin for one-shot piolium prompts with %s",
+		async (printFlag) => {
+			const fakePi = writeStdinAwareFakePi();
 
-		const result = await runPioliumWithOpenStdin(["-p", "/piolium-smoke"], {
-			PIOLIUM_PI_BIN: fakePi,
-		});
+			const result = await runPioliumWithOpenStdin([printFlag, "/piolium-smoke"], {
+				PIOLIUM_PI_BIN: fakePi,
+			});
 
-		expect(result.status).toBe(0);
-		expect(result.stdout).toContain("stdin closed");
-		expect(result.stderr).toBe("");
-	});
+			expect(result.status).toBe(0);
+			expect(result.stdout).toContain("stdin closed");
+			expect(result.stderr).toBe("");
+		},
+	);
 
 	it("respects an explicit console progress override", () => {
 		const fakePi = writeFakePi();

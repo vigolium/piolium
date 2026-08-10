@@ -268,8 +268,18 @@ function defaultConsoleStreamEnv(args) {
 function hasPioliumPrompt(args) {
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
-		if ((arg === "-p" || arg === "--prompt") && args[i + 1]?.includes("/piolium-")) return true;
-		if ((arg.startsWith("-p=") || arg.startsWith("--prompt=")) && arg.includes("/piolium-")) {
+		if (
+			(arg === "-p" || arg === "--print" || arg === "--prompt") &&
+			args[i + 1]?.includes("/piolium-")
+		) {
+			return true;
+		}
+		if (
+			(arg.startsWith("-p=") ||
+				arg.startsWith("--print=") ||
+				arg.startsWith("--prompt=")) &&
+			arg.includes("/piolium-")
+		) {
 			return true;
 		}
 	}
