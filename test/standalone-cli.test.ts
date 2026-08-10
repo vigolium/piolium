@@ -22,7 +22,11 @@ afterEach(() => {
 	rmSync(tmpRoot, { recursive: true, force: true });
 });
 
-function runPiolium(args: string[], extraEnv: Record<string, string> = {}) {
+function runPiolium(
+	args: string[],
+	extraEnv: Record<string, string> = {},
+	input?: string,
+) {
 	const env = {
 		...process.env,
 		PIOLIUM_HOME: join(tmpRoot, "home"),
@@ -33,6 +37,7 @@ function runPiolium(args: string[], extraEnv: Record<string, string> = {}) {
 	return spawnSync(process.execPath, [resolve("bin/piolium.mjs"), ...args], {
 		encoding: "utf8",
 		env,
+		input,
 	});
 }
 
@@ -60,8 +65,10 @@ function writeStdinAwareFakePi() {
 		path,
 		[
 			"#!/usr/bin/env node",
-			"process.stdin.resume();",
-			"process.stdin.on('end', () => console.log('stdin closed'));",
+			"let input = '';",
+			"process.stdin.setEncoding('utf8');",
+			"process.stdin.on('data', (chunk) => (input += chunk));",
+			"process.stdin.on('end', () => console.log(JSON.stringify({ stdin: input })));",
 			"",
 		].join("\n"),
 	);
@@ -209,10 +216,23 @@ describe("standalone piolium launcher", () => {
 			});
 
 			expect(result.status).toBe(0);
-			expect(result.stdout).toContain("stdin closed");
+			expect(JSON.parse(result.stdout).stdin).toBe("");
 			expect(result.stderr).toBe("");
 		},
 	);
+
+	it("preserves piped stdin for non-Piolium prompts", () => {
+		const fakePi = writeStdinAwareFakePi();
+
+		const result = runPiolium(
+			["-p", "plain prompt"],
+			{ PIOLIUM_PI_BIN: fakePi },
+			"piped context",
+		);
+
+		expect(result.status).toBe(0);
+		expect(JSON.parse(result.stdout).stdin).toBe("piped context");
+	});
 
 	it("respects an explicit console progress override", () => {
 		const fakePi = writeFakePi();

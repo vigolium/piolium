@@ -245,8 +245,10 @@ function runPi(args, paths) {
 	const piCommand = process.env.PIOLIUM_PI_BIN || "pi";
 	const finalArgs = hasSessionDirArg(args) ? args : ["--session-dir", paths.sessionDir, ...args];
 	const consoleStream = defaultConsoleStreamEnv(finalArgs);
+	// Pi prepends piped stdin to its initial message, which prevents slash-command dispatch.
+	const stdio = hasPioliumPrompt(finalArgs) ? ["ignore", "inherit", "inherit"] : "inherit";
 	const result = spawnSync(piCommand, finalArgs, {
-		stdio: hasPioliumPrompt(finalArgs) ? ["ignore", "inherit", "inherit"] : "inherit",
+		stdio,
 		env: {
 			...process.env,
 			PI_CODING_AGENT_DIR: paths.agentDir,
