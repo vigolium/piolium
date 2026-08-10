@@ -245,8 +245,8 @@ function runPi(args, paths) {
 	const piCommand = process.env.PIOLIUM_PI_BIN || "pi";
 	const finalArgs = hasSessionDirArg(args) ? args : ["--session-dir", paths.sessionDir, ...args];
 	const consoleStream = defaultConsoleStreamEnv(finalArgs);
-	// Pi prepends piped stdin to its initial message, which prevents slash-command dispatch.
-	const stdio = hasPioliumPrompt(finalArgs) ? ["ignore", "inherit", "inherit"] : "inherit";
+	// Print mode must not wait indefinitely on an inherited automation pipe.
+	const stdio = isPrintMode(finalArgs) ? ["ignore", "inherit", "inherit"] : "inherit";
 	const result = spawnSync(piCommand, finalArgs, {
 		stdio,
 		env: {
@@ -264,26 +264,19 @@ function runPi(args, paths) {
 
 function defaultConsoleStreamEnv(args) {
 	if (process.env.PIOLIUM_CONSOLE_STREAM !== undefined) return process.env.PIOLIUM_CONSOLE_STREAM;
-	return hasPioliumPrompt(args) ? "1" : undefined;
+	return isPrintMode(args) ? "1" : undefined;
 }
 
-function hasPioliumPrompt(args) {
-	let hasPrintFlag = false;
-	for (const arg of args) {
-		if (arg === "-p" || arg === "--print" || arg === "--prompt") {
-			hasPrintFlag = true;
-			continue;
-		}
-		if (arg.startsWith("-p=") || arg.startsWith("--print=") || arg.startsWith("--prompt=")) {
-			const value = arg.slice(arg.indexOf("=") + 1);
-			if (isPioliumCommand(value)) return true;
-		}
-	}
-	return hasPrintFlag && args.some(isPioliumCommand);
-}
-
-function isPioliumCommand(value) {
-	return /^\/piolium-[a-z0-9][a-z0-9-]*(?:\s|$)/i.test(value.trimStart());
+function isPrintMode(args) {
+	return args.some(
+		(arg) =>
+			arg === "-p" ||
+			arg === "--print" ||
+			arg === "--prompt" ||
+			arg.startsWith("-p=") ||
+			arg.startsWith("--print=") ||
+			arg.startsWith("--prompt="),
+	);
 }
 
 function hasSessionDirArg(args) {

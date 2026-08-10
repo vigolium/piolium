@@ -207,7 +207,7 @@ describe("standalone piolium launcher", () => {
 	});
 
 	it.each(["-p", "--print"])(
-		"closes inherited stdin for one-shot piolium prompts with %s",
+		"closes inherited stdin for print mode with %s",
 		async (printFlag) => {
 			const fakePi = writeStdinAwareFakePi();
 
@@ -233,21 +233,28 @@ describe("standalone piolium launcher", () => {
 		expect(JSON.parse(result.stdout).stdin).toBe("");
 	});
 
-	it.each(["plain prompt", "Explain /piolium-smoke"])(
-		"preserves piped stdin for non-Piolium prompt: %s",
-		(prompt) => {
-			const fakePi = writeStdinAwareFakePi();
+	it("closes inherited stdin for generic print prompts", async () => {
+		const fakePi = writeStdinAwareFakePi();
 
-			const result = runPiolium(
-				["-p", prompt],
-				{ PIOLIUM_PI_BIN: fakePi },
-				"piped context",
-			);
+		const result = await runPioliumWithOpenStdin(["-p", "plain prompt"], {
+			PIOLIUM_PI_BIN: fakePi,
+		});
 
-			expect(result.status).toBe(0);
-			expect(JSON.parse(result.stdout).stdin).toBe("piped context");
-		},
-	);
+		expect(result.status).toBe(0);
+		expect(JSON.parse(result.stdout).stdin).toBe("");
+	});
+
+	it.each([
+		{ label: "interactive", args: ["plain prompt"] },
+		{ label: "login", args: ["login"] },
+	])("preserves piped stdin for $label mode", ({ args }) => {
+		const fakePi = writeStdinAwareFakePi();
+
+		const result = runPiolium(args, { PIOLIUM_PI_BIN: fakePi }, "piped context");
+
+		expect(result.status).toBe(0);
+		expect(JSON.parse(result.stdout).stdin).toBe("piped context");
+	});
 
 	it("respects an explicit console progress override", () => {
 		const fakePi = writeFakePi();
