@@ -247,6 +247,9 @@ describe("standalone piolium launcher", () => {
 	it.each([
 		{ label: "interactive", args: ["plain prompt"] },
 		{ label: "login", args: ["login"] },
+		{ label: "extension --prompt flag", args: ["--prompt", "value", "plain prompt"] },
+		{ label: "non-flag --print= form", args: ["--print=/piolium-smoke", "plain prompt"] },
+		{ label: "non-flag -p= form", args: ["-p=/piolium-smoke", "plain prompt"] },
 	])("preserves piped stdin for $label mode", ({ args }) => {
 		const fakePi = writeStdinAwareFakePi();
 

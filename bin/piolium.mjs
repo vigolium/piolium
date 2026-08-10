@@ -268,15 +268,7 @@ function defaultConsoleStreamEnv(args) {
 }
 
 function isPrintMode(args) {
-	return args.some(
-		(arg) =>
-			arg === "-p" ||
-			arg === "--print" ||
-			arg === "--prompt" ||
-			arg.startsWith("-p=") ||
-			arg.startsWith("--print=") ||
-			arg.startsWith("--prompt="),
-	);
+	return args.some((arg) => arg === "-p" || arg === "--print");
 }
 
 function hasSessionDirArg(args) {
