@@ -24,7 +24,7 @@ import { type WriteStream, createWriteStream } from "node:fs";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
+import type { Api, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
 import {
 	type AgentSessionEvent,
 	DefaultResourceLoader,
@@ -66,8 +66,7 @@ export interface RunAgentOptions {
 	 * Optional model override. When omitted the child boots with the
 	 * settings-derived default, matching the parent.
 	 */
-	// biome-ignore lint/suspicious/noExplicitAny: pi-ai Model is generic over provider api
-	model?: Model<any>;
+	model?: Model<Api>;
 	/**
 	 * Optional parent registry. This preserves extension-registered providers
 	 * and their request headers for child sessions without loading extensions
@@ -119,6 +118,76 @@ export class AgentRunError extends Error {
 }
 
 const TRANSCRIPT_STRING_LIMIT = 8_000;
+const AGENT_MODEL_FAMILIES = new Set(["haiku", "sonnet", "opus"]);
+
+function modelVersionParts(model: Model<Api>): number[] {
+	return model.id.match(/\d+/g)?.map(Number) ?? [];
+}
+
+function compareVersionParts(a: number[], b: number[]): number {
+	const length = Math.max(a.length, b.length);
+	for (let index = 0; index < length; index++) {
+		const difference = (a[index] ?? 0) - (b[index] ?? 0);
+		if (difference !== 0) return difference;
+	}
+	return 0;
+}
+
+function providerPreference(model: Model<Api>, parentProvider: string | undefined): number {
+	if (parentProvider && model.provider === parentProvider) return 3;
+	if (model.provider === "anthropic") return 2;
+	if (model.provider === "anthropic-vertex") return 1;
+	return 0;
+}
+
+function choosePreferredModel(
+	models: Model<Api>[],
+	parentProvider: string | undefined,
+): Model<Api> | undefined {
+	let preferred: Model<Api> | undefined;
+	for (const candidate of models) {
+		if (!preferred) {
+			preferred = candidate;
+			continue;
+		}
+		const providerDifference =
+			providerPreference(candidate, parentProvider) - providerPreference(preferred, parentProvider);
+		if (
+			providerDifference > 0 ||
+			(providerDifference === 0 &&
+				compareVersionParts(modelVersionParts(candidate), modelVersionParts(preferred)) > 0)
+		) {
+			preferred = candidate;
+		}
+	}
+	return preferred;
+}
+
+/** Resolve a Claude Code-style agent model declaration against authenticated Pi models. */
+export function resolveAgentModel(
+	requested: string | undefined,
+	parentModel: Model<Api> | undefined,
+	modelRegistry: ModelRegistry | undefined,
+): Model<Api> | undefined {
+	const normalized = requested?.trim().toLowerCase();
+	if (!normalized || !modelRegistry) return parentModel;
+
+	const available = modelRegistry.getAvailable();
+	let matches: Model<Api>[];
+	if (AGENT_MODEL_FAMILIES.has(normalized)) {
+		matches = available.filter((model) => {
+			const searchable = `${model.provider} ${model.id} ${model.name ?? ""}`.toLowerCase();
+			return searchable.includes(normalized);
+		});
+	} else {
+		matches = available.filter((model) => {
+			const qualified = `${model.provider}/${model.id}`.toLowerCase();
+			return qualified === normalized || model.id.toLowerCase() === normalized;
+		});
+	}
+
+	return choosePreferredModel(matches, parentModel?.provider) ?? parentModel;
+}
 
 export function buildRuntimeHeader(runtime: RuntimeContext): string {
 	const lines: string[] = ["# piolium Runtime", ""];
@@ -196,6 +265,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 
 	const header = buildRuntimeHeader(options.runtime);
 	const composedSystemPrompt = `${header}\n\n${options.agent.systemPrompt}`;
+	const resolvedModel = resolveAgentModel(options.agent.model, options.model, options.modelRegistry);
 
 	writeFileSync(
 		promptPath,
@@ -203,6 +273,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 			`# Run ${options.runId}`,
 			`Agent: ${options.agent.name}`,
 			`Source: ${options.agent.sourcePath}`,
+			`Requested model: ${options.agent.model ?? "(parent/default)"}`,
+			`Resolved model: ${resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : "(default)"}`,
 			"",
 			"## Task",
 			"",
@@ -243,7 +315,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 	const { session } = await createAgentSession({
 		cwd: options.runtime.cwd,
 		agentDir: getAgentDir(),
-		...(options.model ? { model: options.model } : {}),
+		...(resolvedModel ? { model: resolvedModel } : {}),
 		...(options.modelRegistry ? { modelRegistry: options.modelRegistry } : {}),
 		...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}),
 		tools: allowedTools,

@@ -306,6 +306,8 @@ Piolium records retry metadata in `piolium/audit-state.json`. Retry counts are r
 | Lite Q0/Q1 overrides | `2` retries, `5000` ms base backoff, `120000` ms max backoff | `--plm-lite-retries`, `--plm-lite-backoff`, `--plm-lite-backoff-max` |
 | Command reruns | `3` retries, `5000` ms base backoff, `120000` ms max backoff | `--plm-command-retries`, `--plm-command-backoff`, `--plm-command-backoff-max` |
 
+Provider policy refusals that explicitly flag cybersecurity content are treated as non-retryable: repeating an unchanged phase prompt cannot succeed and only wastes requests. The phase still records the refusal in `audit-state.json` so the operator can resume with another model.
+
 Example:
 
 ```bash
@@ -397,7 +399,8 @@ Sub-agents under `agents/` are package-private because Pi has no first-class `ag
 - Canonical phase order is in `extensions/piolium/modes/modes.ts`.
 - Per-phase retry, state transitions, and heartbeat tracking are owned by `extensions/piolium/modes/phase-runner.ts`.
 - Sub-agents run through `extensions/piolium/agent-runner.ts`, which creates child Pi sessions in-process with `createAgentSession`.
-- Agent runs write transcripts to `<target>/piolium/tmp/piolium/runs/<runId>/`.
+- Agent frontmatter model families (`haiku`, `sonnet`, `opus`) resolve against authenticated Pi models. Resolution prefers the parent's provider when it offers that family, then direct Anthropic and Anthropic Vertex, and selects the newest matching model. Unresolvable declarations fall back to the parent model.
+- Agent runs write transcripts to `<target>/piolium/tmp/piolium/runs/<runId>/` and record both requested and resolved models in `prompt.md`.
 - Durable state lives at `<target>/piolium/audit-state.json`.
 - File writes to audit state should go through helpers in `extensions/piolium/audit-state.ts`.
 

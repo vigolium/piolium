@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	findNonRetryableRejection,
+	isNonRetryableAgentError,
 	readNonNegativeIntEnv,
 	readPositiveIntEnv,
 	runWithRetry,
@@ -56,6 +58,28 @@ describe("runWithRetry", () => {
 		).rejects.toThrow("do-not-retry");
 
 		expect(attempts).toBe(1);
+	});
+});
+
+describe("isNonRetryableAgentError", () => {
+	it("recognizes the Codex cybersecurity policy refusal", () => {
+		expect(
+			isNonRetryableAgentError(new Error("This content was flagged for possible cybersecurity risk.")),
+		).toBe(true);
+	});
+
+	it("does not suppress retries for ordinary security-audit failures", () => {
+		expect(isNonRetryableAgentError(new Error("cybersecurity scanner timed out"))).toBe(false);
+	});
+
+	it("finds policy refusals captured by Promise.allSettled", () => {
+		const policyError = new Error("Join the Trusted Access for Cyber program to continue.");
+		const results: PromiseSettledResult<unknown>[] = [
+			{ status: "fulfilled", value: undefined },
+			{ status: "rejected", reason: policyError },
+		];
+
+		expect(findNonRetryableRejection(results)?.reason).toBe(policyError);
 	});
 });
 

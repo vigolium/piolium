@@ -18,6 +18,7 @@ import {
 } from "../heartbeat.ts";
 import {
 	errorMessage,
+	isNonRetryableAgentError,
 	readNonNegativeIntEnv,
 	readPositiveIntEnv,
 	retryBackoffMs,
@@ -214,11 +215,13 @@ export async function runAgentPhase(opts: RunAgentPhaseOptions): Promise<void> {
 					return;
 				}
 
-				if (opts.signal?.aborted || attempt >= maxAttempts) {
+				const nonRetryable = isNonRetryableAgentError(err);
+				if (opts.signal?.aborted || attempt >= maxAttempts || nonRetryable) {
 					await applyPhaseStatus(cwd, audit, phaseName, {
 						status: "failed",
-						error:
-							attempt >= maxAttempts && maxRetries > 0
+						error: nonRetryable
+							? `Non-retryable provider policy error: ${message}`
+							: attempt >= maxAttempts && maxRetries > 0
 								? `Failed after ${maxRetries} retries: ${message}`
 								: message,
 						attempt,

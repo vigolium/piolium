@@ -66,7 +66,12 @@ import { extractStatusPhase, renderPhaseStatusList } from "./phase-status-strip.
 import { PioliumPromptPrefixEditor, shouldUsePioliumPromptPrefix } from "./prompt-prefix-editor.ts";
 import { registerAnthropicVertex } from "./providers/anthropic-vertex.ts";
 import { buildAuditResultStatsLines } from "./result-stats.ts";
-import { readNonNegativeIntEnv, readPositiveIntEnv, runWithRetry } from "./retry.ts";
+import {
+	isNonRetryableAgentError,
+	readNonNegativeIntEnv,
+	readPositiveIntEnv,
+	runWithRetry,
+} from "./retry.ts";
 
 const PIOLIUM_STREAM = "piolium-stream";
 const FLAG_DIR = "plm-dir";
@@ -519,6 +524,7 @@ async function runCommandWithRetry<T>(
 				maxRetries: readNonNegativeIntEnv("PIOLIUM_COMMAND_MAX_RETRIES", 3),
 				backoffBaseMs: readPositiveIntEnv("PIOLIUM_COMMAND_BACKOFF_BASE_MS", 5000),
 				backoffMaxMs: readPositiveIntEnv("PIOLIUM_COMMAND_BACKOFF_MAX_MS", 120_000),
+				shouldRetry: (err) => !isNonRetryableAgentError(err),
 				onRetry: (info) => {
 					ui.notify(
 						`${label} attempt ${info.attempt}/${info.maxAttempts} failed; retrying in ${Math.ceil(info.backoffMs / 1000)}s.`,

@@ -39,6 +39,7 @@ import { runCandidateScanAsync } from "../candidate-scan.ts";
 import { consolidateDrafts, findingsDraftDir, listFindingDirs } from "../findings.ts";
 import { ingestKnowledgeBaseForRun } from "../knowledge-base-input.ts";
 import { runReconAsync } from "../recon.ts";
+import { findNonRetryableRejection, isNonRetryableAgentError } from "../retry.ts";
 import { Scheduler } from "../scheduler.ts";
 import { cleanupConfirmArtifacts } from "./confirm.ts";
 import { type PhaseUiHooks, runAgentPhase } from "./phase-runner.ts";
@@ -350,6 +351,8 @@ async function runL3PlusL4Parallel(
 		}),
 	]);
 	scheduler.dispose();
+	const nonRetryable = findNonRetryableRejection(settled);
+	if (nonRetryable) throw nonRetryable.reason;
 	return { failed: settled.some((s) => s.status === "rejected") };
 }
 
@@ -409,10 +412,12 @@ async function runPerFindingPhase(
 	);
 	scheduler.dispose();
 	const failed = results.some((r) => r.status === "rejected");
+	const nonRetryable = findNonRetryableRejection(results);
 	await applyPhaseStatus(cwd, audit, phaseName, {
 		status: failed ? "failed" : "complete",
 		...(failed ? { error: `Some per-finding ${phaseName} runs failed.` } : {}),
 	});
+	if (nonRetryable) throw nonRetryable.reason;
 	return { failed };
 }
 
@@ -558,6 +563,7 @@ export async function runBalancedAudit(opts: RunBalancedOptions): Promise<RunBal
 	const reportAssembler = agents.get("report-assembler");
 
 	let failed = false;
+	let nonRetryableError: unknown;
 
 	try {
 		// L1
@@ -710,8 +716,9 @@ export async function runBalancedAudit(opts: RunBalancedOptions): Promise<RunBal
 			const r = await runBalancedVerificationCleanup(cwd, audit, ui, signal);
 			if (r.failed) failed = true;
 		}
-	} catch {
+	} catch (err) {
 		failed = true;
+		if (isNonRetryableAgentError(err)) nonRetryableError = err;
 	}
 
 	await markAuditStatus(cwd, audit.audit_id, failed ? "failed" : "complete");
@@ -727,5 +734,6 @@ export async function runBalancedAudit(opts: RunBalancedOptions): Promise<RunBal
 		failed ? "Balanced audit failed." : "Balanced audit complete.",
 		failed ? "error" : "info",
 	);
+	if (nonRetryableError) throw nonRetryableError;
 	return { auditId: audit.audit_id, status: failed ? "failed" : "complete", phases };
 }

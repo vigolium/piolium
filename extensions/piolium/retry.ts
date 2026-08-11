@@ -42,6 +42,26 @@ export function errorMessage(err: unknown): string {
 	return err instanceof Error ? err.message : typeof err === "string" ? err : "Unknown error";
 }
 
+const NON_RETRYABLE_AGENT_ERROR_PATTERNS = [
+	/This content was flagged for possible cybersecurity risk/i,
+	/join the Trusted Access for Cyber program/i,
+];
+
+/** Provider policy refusals are deterministic for an unchanged phase prompt. */
+export function isNonRetryableAgentError(err: unknown): boolean {
+	const message = errorMessage(err);
+	return NON_RETRYABLE_AGENT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+export function findNonRetryableRejection(
+	results: readonly PromiseSettledResult<unknown>[],
+): PromiseRejectedResult | undefined {
+	for (const result of results) {
+		if (result.status === "rejected" && isNonRetryableAgentError(result.reason)) return result;
+	}
+	return undefined;
+}
+
 export function retryBackoffMs(attempt: number, baseMs: number, maxMs: number): number {
 	const exponent = Math.max(0, attempt - 1);
 	const raw = baseMs * 2 ** exponent;
