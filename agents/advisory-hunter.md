@@ -200,13 +200,13 @@ query($cursor: String) {
 curl -s -X POST https://api.osv.dev/v1/query \
   -H "Content-Type: application/json" \
   -d '{"package": {"name": "<PACKAGE>", "ecosystem": "<ECOSYSTEM>"}}' \
-  | jq '.vulns | sort_by(.published) | reverse | .[] | {id, published, modified, summary, severity: (.severity // .database_specific.severity), aliases}'
+  | jq '.vulns // [] | sort_by(.published) | reverse | .[] | {id, published, modified, summary, severity: (.severity // .database_specific.severity), aliases}'
 
 # Batch query for multiple packages at once
 curl -s -X POST https://api.osv.dev/v1/querybatch \
   -H "Content-Type: application/json" \
   -d '{"queries": [{"package": {"name": "<PKG1>", "ecosystem": "<ECO1>"}}, {"package": {"name": "<PKG2>", "ecosystem": "<ECO2>"}}]}' \
-  | jq '.results[].vulns | sort_by(.published) | reverse'
+  | jq '[.results[] | .vulns // [] | .[]] | sort_by(.published) | reverse'
 ```
 <!-- codex-trim-end -->
 
